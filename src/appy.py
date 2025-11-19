@@ -51,7 +51,7 @@ gemini_model = genai.GenerativeModel('gemini-1.5-flash')
 @st.cache_resource
 def load_model():
     # This finds the model in the same folder as app.py (src/)
-    model_path = os.path.join(os.path.dirname(__file__), "model2.h5")  # ← change name if needed
+    model_path = os.path.join(os.path.dirname(__file__), "Model2.h5")  # ← change name if needed
     
     if not os.path.exists(model_path):
         st.error(f"Model file not found!\n"
