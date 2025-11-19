@@ -1,6 +1,6 @@
 ---
 title: BrainAi
-emoji: 🚀
+emoji: 🧠
 colorFrom: red
 colorTo: red
 sdk: docker
