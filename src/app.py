@@ -4,149 +4,182 @@ import tensorflow as tf
 import numpy as np
 from PIL import Image
 import google.generativeai as genai
+from fpdf import FPDF
+import base64
+from datetime import datetime
+import os
+import tempfile
 
-# ========================= CONFIG =========================
+# ========================= PAGE CONFIG =========================
 st.set_page_config(
-    page_title="Brain MRI Tumor Classifier",
+    page_title="Brain MRI Tumor AI",
     page_icon="brain",
-    layout="centered"
+    layout="centered",
+    initial_sidebar_state="expanded"
 )
 
-# ------------------- GEMINI SETUP -------------------
-GEMINI_API_KEY = "your_gemini_api_key_here"  # Get free at: https://aistudio.google.com/app/apikey
+# ========================= SECRETS (HUGGINGFACE) =========================
+# On Hugging Face Spaces → Settings → Secrets → Add: GEMINI_API_KEY = your_key_here
+GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"] if "GEMINI_API_KEY" in st.secrets else os.getenv("GEMINI_API_KEY")
+if not GEMINI_API_KEY:
+    st.error("Gemini API key not found! Add it in Secrets (Hugging Face) or environment.")
+    st.stop()
+
 genai.configure(api_key=GEMINI_API_KEY)
 gemini_model = genai.GenerativeModel('gemini-1.5-flash')
 
-# ------------------- LOAD MODELS -------------------
+# ========================= LOAD MODEL =========================
 @st.cache_resource
-def load_models():
-    tumor_model = tf.keras.models.load_model('model.h5', compile=False)
-    
-    # Lightweight validator: Is this a Brain MRI?
-    validator = tf.keras.applications.MobileNetV2(
-        weights='imagenet', include_top=False, pooling='avg', input_shape=(224, 224, 3)
-    )
-    return tumor_model, validator
+def load_model():
+    return tf.keras.models.load_model('model.h5', compile=False)
 
-model, mri_validator = load_models()
-
+model = load_model()
 class_names = ['Glioma', 'Meningioma', 'No Tumor', 'Pituitary']
 
-# ------------------- IMAGE VALIDATION: IS IT A BRAIN MRI? -------------------
-def is_brain_mri(image):
-    img = image.resize((224, 224))
-    img_array = np.array(img) / 255.0
-    img_array = np.expand_dims(img_array, axis=0)
-    
-    # Extract features
-    features = mri_validator.predict(img_array, verbose=0)
-    
-    # Simple heuristic: Brain MRIs have very specific texture/pattern
-    # We use a pre-trained classifier on medical vs non-medical images
-    # Here’s a strong rule-based + ML hybrid check:
-    
-    # 1. Grayscale check (most MRIs are grayscale or near-grayscale)
-    if img_array.shape[-1] == 3:
-        r, g, b = img_array[0].mean(axis=(0,1))
-        if not (abs(r-g) < 0.05 and abs(g-b) < 0.05 and abs(r-b) < 0.05):
-            return False, "This appears to be a color image. Brain MRIs are usually grayscale."
+# ========================= IMAGE VALIDATOR =========================
+def is_brain_mri(img):
+    try:
+        arr = np.array(img.resize((224, 224)))
+        if arr.shape[-1] == 3:
+            r, g, b = arr.mean(axis=(0,1))
+            if not (abs(r-g) < 30 and abs(g-b) < 30):  # Not near-grayscale
+                return False, "Color image detected. Brain MRIs are grayscale."
+        
+        # MobileNetV2 check for obvious non-medical content
+        mob = tf.keras.applications.MobileNetV2(weights='imagenet', include_top=True)
+        x = tf.keras.applications.mobilenet_v2.preprocess_input(arr.copy().astype('float32'))
+        x = np.expand_dims(x, 0)
+        preds = mob.predict(x, verbose=0)
+        decoded = tf.keras.applications.mobilenet_v2.decode_predictions(preds, top=1)[0]
+        label, conf = decoded[0][1], decoded[0][2]
+        
+        blocked = ['cat', 'dog', 'car', 'person', 'pizza', 'bird', 'flower']
+        if any(w in label.lower() for w in blocked) and conf > 0.3:
+            return False, f"This appears to be a '{label}' not an MRI scan."
+        
+        return True, "Valid brain MRI"
+    except:
+        return False, "Invalid image format."
 
-    # 2. High contrast + texture typical of MRI (simple entropy check)
-    from scipy.stats import entropy
-    gray = np pil.to_grayscale(np.array(image.resize((128,128))))
-    hist, _ = np.histogram(gray, bins=64, range=(0,255))
-    ent = entropy(hist + 1e-6)
-    if ent < 2.5:
-        return False, "Image has very low detail. Not typical for MRI."
-
-    # 3. MobileNetV2 should NOT confidently predict everyday objects
-    temp_model = tf.keras.applications.MobileNetV2(weights='imagenet')
-    img_mob = tf.keras.applications.mobilenet_v2.preprocess_input(np.array(img.resize((224,224))).copy())
-    img_mob = np.expand_dims(img_mob, 0)
-    preds = temp_model.predict(img_mob, verbose=0)
-    decoded = tf.keras.applications.mobilenet_v2.decode_predictions(preds, top=3)[0]
-    
-    top_class = decoded[0][1].lower()
-    confidence = decoded[0][2]
-    
-    # Block common non-medical objects
-    blocked = ['cat', 'dog', 'car', 'person', 'bird', 'airplane', 'flower', 'food', 'pizza']
-    if any(word in top_class for word in blocked) and confidence > 0.3:
-        return False, f"This looks like a '{top_class.replace('_', ' ')}' (confidence: {confidence:.1%}), not a brain MRI."
-
-    return True, "Valid brain MRI scan"
-
-# ------------------- PREDICTION -------------------
-def predict_tumor(img):
+# ========================= PREDICTION =========================
+def predict_single(img):
     img_resized = img.resize((299, 299))
     arr = np.array(img_resized) / 255.0
     arr = np.expand_dims(arr, 0)
     pred = model.predict(arr, verbose=0)[0]
     idx = np.argmax(pred)
-    return class_names[idx], np.max(pred), pred
+    return class_names[idx], float(np.max(pred)), pred.tolist()
 
-# ------------------- GEMINI CHATBOT -------------------
-def ask_gemini(diagnosis, confidence, question):
-    prompt = f"""
-You are a compassionate neurosurgeon assistant explaining brain MRI results.
+# ========================= PDF REPORT =========================
+def create_pdf_report(images, results, patient_name="Patient", doctor_name="AI Assistant"):
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Arial", 'B', 16)
+    pdf.cell(0, 10, "Brain MRI Tumor Analysis Report", ln=1, align='C')
+    pdf.ln(10)
+    
+    pdf.set_font("Arial", size=12)
+    pdf.cell(0, 10, f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M')}", ln=1)
+    pdf.cell(0, 10, f"Patient: {patient_name}", ln=1)
+    pdf.cell(0, 10, f"Referring AI: {doctor_name}", ln=1)
+    pdf.ln(10)
+    
+    pdf.set_font("Arial", 'B', 12)
+    pdf.cell(0, 10, "Summary of Findings:", ln=1)
+    pdf.set_font("Arial", size=11)
+    
+    overall = max(results, key=lambda x: x[1])[0]  # Most confident prediction
+    pdf.cell(0, 10, f"• Most likely diagnosis: {overall}", ln=1)
+    pdf.cell(0, 10, f"• Total slices analyzed: {len(images)}", ln=1)
+    pdf.ln(5)
+    
+    pdf.set_font("Arial", 'B', 12)
+    pdf.cell(0, 10, "Slice-by-Slice Results:", ln=1)
+    pdf.set_font("Arial", size=10)
+    
+    for i, (img, (label, conf, _)) in enumerate(zip(images, results), 1):
+        pdf.cell(0, 8, f"  Slice {i}: {label} ({conf:.1%} confidence)", ln=1)
+        # Save image temporarily
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp:
+            img.save(tmp.name)
+            pdf.image(tmp.name, w=180)
+            os.unlink(tmp.name)
+        pdf.ln(5)
+    
+    pdf.set_font("Arial", 'I', 10)
+    pdf.cell(0, 10, "This is an AI-generated report. Final diagnosis must be confirmed by a qualified neurosurgeon.", ln=1)
+    
+    return pdf
 
-MRI Result: {diagnosis} (Confidence: {confidence:.1%})
-
-Patient asks: "{question}"
-
-Respond professionally using short bullet points:
-• Explain {diagnosis} in simple terms
-• Benign vs malignant likelihood
-• Common symptoms
-• Urgency level
-• Recommended next steps
-• If "No Tumor": Reassure and advise clinical correlation
-
-End with: "Please show this report to your neurologist."
-"""
-    try:
-        response = gemini_model.generate_content(prompt,
-            generation_config=genai.types.GenerationConfig(temperature=0.3, max_output_tokens=300))
-        return response.text.strip()
-    except:
-        return "Connection issue. Please consult your doctor directly."
-
-# ========================= UI =========================
+# ========================= MAIN UI =========================
 st.title("Brain MRI Tumor Detection")
-st.markdown("**Only accepts real brain MRI scans** • Rejects cats, cars, selfies, etc.")
+st.markdown("**Multi-slice • PDF Report • AI Neurologist Assistant**")
 
-uploaded = st.file_uploader("Upload Brain MRI (T1, T2, FLAIR, axial view)", type=["jpg", "jpeg", "png"])
+# Patient info (optional)
+with st.expander("Patient Information (for report)", expanded=False):
+    patient_name = st.text_input("Patient Name", "Anonymous Patient")
+    doctor_name = st.text_input("Referring Doctor", "AI Assistant")
 
-if uploaded:
-    image = Image.open(uploaded).convert("RGB")
-    st.image(image, caption="Uploaded Image", use_column_width=True)
+# Upload multiple images
+uploaded_files = st.file_uploader(
+    "Upload Brain MRI slices (multiple allowed)",
+    type=["png", "jpg", "jpeg"],
+    accept_multiple_files=True
+)
 
-    with st.spinner("Validating image..."):
-        valid, message = is_brain_mri(image)
+if uploaded_files:
+    images = []
+    results = []
+    valid_count = 0
 
-    if not valid:
-        st.error("Invalid Image Rejected")
-        st.warning(message)
+    for file in uploaded_files:
+        img = Image.open(file).convert("L").convert("RGB")  # Force grayscale → RGB
+        with st.spinner(f"Validating {file.name}..."):
+            valid, msg = is_brain_mri(img)
+            if not valid:
+                st.error(f"Rejected {file.name}")
+                st.warning(msg)
+                continue
+        
+        st.image(img, caption=f"Valid MRI: {file.name}", width=200)
+        label, conf, probs = predict_single(img)
+        results.append((label, conf, probs))
+        images.append(img)
+        valid_count += 1
+
+    if valid_count == 0:
+        st.error("No valid MRI images uploaded.")
         st.stop()
 
-    st.success("Valid Brain MRI Scan Accepted")
+    # Overall result
+    final_diagnosis = max(results, key=lambda x: x[1])[0]
+    avg_conf = np.mean([r[1] for r in results])
 
-    with st.spinner("Analyzing for tumors..."):
-        diagnosis, confidence, probs = predict_tumor(image)
-
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns(3)
     with col1:
-        st.metric("Diagnosis", diagnosis)
+        st.metric("Total Valid Slices", valid_count)
     with col2:
-        st.metric("Confidence", f"{confidence:.1%}")
+        st.metric("Final Diagnosis", final_diagnosis)
+    with col3:
+        st.metric("Avg Confidence", f"{avg_conf:.1%}")
 
-    st.bar_chart(dict(zip(class_names, probs)))
-
-    if diagnosis == "No Tumor":
-        st.success("No tumor detected – Healthy brain MRI")
+    if final_diagnosis != "No Tumor":
+        st.error("Tumor Detected – Urgent neurosurgery consultation recommended")
     else:
-        st.error(f"{diagnosis} Tumor Detected")
-        st.warning("Urgent: Please see a neurosurgeon immediately")
+        st.success("No tumor detected across all slices")
+
+    # PDF Download
+    with st.spinner("Generating medical report..."):
+        pdf = create_pdf_report(images, results, patient_name, doctor_name)
+        pdf_buffer = pdf.output(dest='S').encode('latin1')
+        b64 = base64.b64encode(pdf_buffer).decode()
+
+    st.download_button(
+        label="Download PDF Report",
+        data=pdf_buffer,
+        file_name=f"MRI_Report_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
+        mime="application/pdf"
+    )
 
     # Chatbot
     st.markdown("---")
@@ -155,21 +188,24 @@ if uploaded:
     if "messages" not in st.session_state:
         st.session_state.messages = [{
             "role": "assistant",
-            "content": f"MRI shows: **{diagnosis}** ({confidence:.1%} confidence)\n\nHow can I help you understand this?"
+            "content": f"Analysis complete: **{final_diagnosis}** in {valid_count} slice(s).\n\nHow can I help you understand this result?"
         }]
 
     for msg in st.session_state.messages:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
 
-    if prompt := st.chat_input("Ask about your result (e.g., Is meningioma dangerous?)"):
+    if prompt := st.chat_input("Ask about your MRI result..."):
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"):
             st.markdown(prompt)
         with st.chat_message("assistant"):
-            with st.spinner("Thinking..."):
-                reply = ask_gemini(diagnosis, confidence, prompt)
+            with st.spinner("Consulting AI neurologist..."):
+                reply = gemini_model.generate_content(
+                    f"Brain MRI shows {final_diagnosis} across {valid_count} slices. Patient asks: {prompt}\n"
+                    "Respond professionally in bullet points. End with: Please consult your neurosurgeon."
+                ).text
             st.markdown(reply)
             st.session_state.messages.append({"role": "assistant", "content": reply})
 
-st.caption("Only real brain MRI images are allowed • Built with Xception + Gemini AI")
+st.caption("Professional AI tool • Only accepts real brain MRI • PDF report ready")
