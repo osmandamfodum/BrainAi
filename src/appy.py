@@ -50,7 +50,7 @@ gemini_model = genai.GenerativeModel('gemini-1.5-flash')
 # ========================= LOAD MODEL =========================
 @st.cache_resource
 def load_model():
-    return tf.keras.models.load_model('src/model2.h5', compile=False)
+    return tf.keras.models.load_model('model2.h5', compile=False)
 model = load_model()
 class_names = ['Glioma', 'Meningioma', 'No Tumor', 'Pituitary']
 # ========================= IMAGE VALIDATOR (IMPROVED) =========================
