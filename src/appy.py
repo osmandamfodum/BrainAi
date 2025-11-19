@@ -50,7 +50,17 @@ gemini_model = genai.GenerativeModel('gemini-1.5-flash')
 # ========================= LOAD MODEL =========================
 @st.cache_resource
 def load_model():
-    return tf.keras.models.load_model('model2.h5', compile=False)
+    # This finds the model in the same folder as app.py (src/)
+    model_path = os.path.join(os.path.dirname(__file__), "model2.h5")  # ← change name if needed
+    
+    if not os.path.exists(model_path):
+        st.error(f"Model file not found!\n"
+                 f"Expected: {model_path}\n"
+                 f"Current folder contains: {os.listdir(os.path.dirname(__file__))}")
+        st.stop()
+    
+    st.success(f"Model loaded: {os.path.basename(model_path)}")
+    return tf.keras.models.load_model(model_path, compile=False)
 model = load_model()
 class_names = ['Glioma', 'Meningioma', 'No Tumor', 'Pituitary']
 # ========================= IMAGE VALIDATOR (IMPROVED) =========================
