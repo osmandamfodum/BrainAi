@@ -48,7 +48,7 @@ gemini_model = genai.GenerativeModel('gemini-1.5-flash')
 # ========================= LOAD ONNX MODEL =========================
 @st.cache_resource
 def load_onnx_model():
-    model_path = os.path.join(os.path.dirname(__file__), "model.tflite")
+    model_path = os.path.join(os.path.dirname(__file__), "Model2.h5")
 
     if not os.path.exists(model_path):
         st.error(f"model.onnx not found in folder: {os.path.dirname(__file__)}")
