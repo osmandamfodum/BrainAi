@@ -1,8 +1,7 @@
 streamlit
-tensorflow==2.15.0
+tensorflow
 pillow
 numpy
 google-generativeai
 fpdf2
 scipy
-gunicorn
