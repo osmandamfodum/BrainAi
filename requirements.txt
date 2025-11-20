@@ -1,8 +1,7 @@
 streamlit
-
-pillow
 numpy
+pillow
 google-generativeai
 scipy
 fpdf2
-tflite-runtime
+onnxruntime
