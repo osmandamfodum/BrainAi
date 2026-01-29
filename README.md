@@ -18,6 +18,9 @@ The model is trained to recognize the following classes:
 * Pillow (PIL)
 * NumPy
 * google-generativeai
+* streamlit
+* altair<5
+
 
 ## Usage Instructions
 1. **Clone the repository:** `git clone <your-repo-link>`
