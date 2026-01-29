@@ -9,7 +9,7 @@ The model is trained to recognize the following classes:
 * Meningioma Tumor
 * Pituitary Tumor
 * No Tumor (Healthy)
-*Note: Ensure your dataset consists of T1 or T2 weighted axial/sagittal slices for optimal accuracy.*
+
 
 ## Requirements
 * Python 3.9+
