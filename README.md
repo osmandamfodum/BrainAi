@@ -33,4 +33,4 @@ The model is trained to recognize the following classes:
    `streamlit run app.py`
 
 ## Methodology
-The application uses a pre-trained CNN (`Model2.h5`). It implements a custom HSV-based saturation check to ensure uploaded images are grayscale (MRI) before processing. Images are resized to 299x299 and normalized before inference.
+The application uses a trained CNN (`Model2.h5`). It implements a custom HSV-based saturation check to ensure uploaded images are grayscale (MRI) before processing. Images are resized to 299x299 and normalized before inference.
