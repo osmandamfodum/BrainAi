@@ -30,27 +30,27 @@ This project was developed using the publicly available **Brain Tumor MRI Datase
 ### Dataset Details
 
 - **Dataset Name:** Brain Tumor MRI Dataset
-- **Dataset Owner:** Masoud Nickparvar
+- **Dataset Owner:** Jun Cheng
 - **Platform:** Kaggle
-- **Dataset URL:** https://www.kaggle.com/datasets/masoudnickparvar/brain-tumor-mri-dataset
-- **License:** Please refer to the dataset license available on the Kaggle dataset page.
+- **Dataset URL:** https://figshare.com/articles/dataset/brain_tumor_dataset/1512427
+- **License:** Please refer to the dataset license available on the Figshare dataset page.
 
-The dataset contains MRI brain images belonging to the following four classes:
+The dataset contains MRI brain images belonging to the following three classes:
 
 - Glioma Tumor
 - Meningioma Tumor
 - Pituitary Tumor
-- No Tumor (Healthy)
+
 
 ### Data Availability Statement
 
-The MRI images used in this project were **not generated or collected by the authors**. They were obtained from the publicly available **Brain Tumor MRI Dataset** provided by **Masoud Nickparvar** through Kaggle.
+The MRI images used in this project were **not generated or collected by the authors**. They were obtained from the publicly available **Brain Tumor MRI Dataset** provided  through Figshare.
 
 The dataset is available at:
 
-https://www.kaggle.com/datasets/masoudnickparvar/brain-tumor-mri-dataset
+https://figshare.com/articles/dataset/brain_tumor_dataset/1512427
 
-Users should download the dataset directly from Kaggle and comply with the dataset owner's license and terms of use.
+Users should download the dataset directly from Figshare and comply with the dataset owner's license and terms of use.
 
 ---
 
@@ -58,24 +58,19 @@ Users should download the dataset directly from Kaggle and comply with the datas
 
 ### Step 1
 
-Log in to your Kaggle account and download your API token (`kaggle.json`) from your account settings.
-
+Log in to your figshare account and download the dataset
 ### Step 2
 
-Upload `kaggle.json` to Google Colab and run:
+Upload download dataset to Google Colab and run and mount it
 
-```python
-!mkdir -p ~/.kaggle
-!mv kaggle.json ~/.kaggle/
-!chmod 600 ~/.kaggle/kaggle.json
-```
+
 
 ### Step 3
 
 Download the dataset:
 
 ```python
-!kaggle datasets download -d masoudnickparvar/brain-tumor-mri-dataset -p /content/dataset
+!kaggle datasets download -d articles/dataset/brain-tumor-mri-dataset -p /content/dataset
 ```
 
 ### Step 4
